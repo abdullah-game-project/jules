@@ -66,10 +66,10 @@ def show_menu() -> str:
     print("\n" + c("═" * 60, CYAN))
     print(c("  MAIN MENU", BOLD, WHITE))
     print(c("═" * 60, CYAN))
-    print(f"  {c('1', CYAN, BOLD)}. {c('Make Shorts', GREEN)}        - Convert YouTube video to Shorts")
-    print(f"  {c('2', CYAN, BOLD)}. {c('Cookies', YELLOW)}           - Import/Manage YouTube cookies (JSON format)")
-    print(f"  {c('3', CYAN, BOLD)}. {c('Gemini API', MAGENTA)}       - Manage multiple Gemini API keys")
-    print(f"  {c('4', CYAN, BOLD)}. {c('Exit', RED)}                 - Exit program")
+    print(f"  {c('1', CYAN, BOLD)}. {c('Make Short', GREEN)}")
+    print(f"  {c('2', CYAN, BOLD)}. {c('Add API', MAGENTA)}")
+    print(f"  {c('3', CYAN, BOLD)}. {c('Cookie', YELLOW)}")
+    print(f"  {c('4', CYAN, BOLD)}. {c('Exit', RED)}")
     print(c("═" * 60, CYAN))
     return prompt("Select an option", "1").strip()
 
@@ -1361,12 +1361,12 @@ def run_shorts_pipeline(args: argparse.Namespace, cfg: Dict[str, Any]) -> None:
         url = f"https://www.youtube.com/watch?v={vid}"
 
     default_out = str(Path.home() / "yt2shorts_output")
-    out_dir_str = args.output or cfg.get("output_dir") or prompt("Output directory", default_out)
+    out_dir_str = args.output or cfg.get("output_dir") or default_out
     out_dir = Path(out_dir_str).expanduser()
 
-    num_clips = args.clips or (5 if args.auto else int(prompt("How many Shorts to generate?", "5")))
-    max_dur   = args.max_dur or (60 if args.auto else int(prompt("Max clip duration (seconds)?", "60")))
-    quality   = args.quality or ("1080" if args.auto else prompt("Download quality (720/1080/1440/best)", "1080"))
+    num_clips = args.clips or int(prompt("How many shorts?", "5"))
+    max_dur   = args.max_dur or 60
+    quality   = args.quality or "1080"
 
     # ── Step 1: Fetch metadata (no download yet) ───────────────
     meta = fetch_video_info(url, cfg)
@@ -1566,9 +1566,9 @@ def main_interactive(args: argparse.Namespace) -> None:
                 run_shorts_pipeline(args, cfg)
                 input(f"\n  {c('Press Enter to return to menu…', DIM)}")
             elif choice == "2":
-                manage_cookies(cfg)
-            elif choice == "3":
                 manage_api_keys(cfg)
+            elif choice == "3":
+                manage_cookies(cfg)
             elif choice == "4":
                 ok("Goodbye! Happy rendering 🎬")
                 break
