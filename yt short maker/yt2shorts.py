@@ -20,6 +20,8 @@ import textwrap
 import time
 import traceback
 from dataclasses import dataclass, field
+from transcriber import transcribe
+import heatmap
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from concurrent.futures import ThreadPoolExecutor
@@ -273,7 +275,7 @@ REQUIRED_BINS: Dict[str, str] = {
     "yt-dlp":  "pip install yt-dlp",
 }
 REQUIRED_PKGS: Dict[str, str] = {
-    "google.generativeai": "pip install google-generativeai",
+    "google.genai": "pip install google-genai",
 }
 
 
@@ -309,6 +311,22 @@ _DEFAULT_CONFIG: Dict[str, Any] = {
     "current_api_key_index": -1,
     "default_api_key_index": 0,
 }
+
+
+def _auto_import_cookies(cfg: Dict[str, Any]) -> None:
+    """Automatically import c.json if it exists and cookies are not yet configured."""
+    local_c_json = Path("c.json")
+    if local_c_json.exists() and not cfg.get("cookies"):
+        try:
+            # We need to convert it to Netscape for yt-dlp
+            from convert_cookies import convert_json_to_netscape
+            netscape_path = Path.home() / ".yt2shorts_cookies.txt"
+            if convert_json_to_netscape(str(local_c_json), str(netscape_path)):
+                cfg["cookies"] = {"youtube.com": str(netscape_path)}
+                save_config(cfg)
+                print(f"  {c('✓', GREEN)} Auto-imported cookies from c.json")
+        except ImportError:
+            pass
 
 
 def load_config() -> Dict[str, Any]:
@@ -372,7 +390,7 @@ def invoke_gemini_with_fallback(
     model_name: str,
 ) -> Tuple[str, str]:
     """
-    Call the Gemini API, automatically rotating API keys on quota errors.
+    Call the Gemini API using google-genai, automatically rotating API keys on quota errors.
 
     Returns:
         (response_text, api_key_used)
@@ -381,10 +399,10 @@ def invoke_gemini_with_fallback(
         ValueError  if no keys are configured.
     """
     try:
-        import google.generativeai as genai  # type: ignore[import]
+        from google import genai
     except ImportError as exc:
         raise ImportError(
-            "google-generativeai is not installed. Run: pip install google-generativeai"
+            "google-genai is not installed. Run: pip install google-genai"
         ) from exc
 
     keys = get_api_keys(cfg)
@@ -398,11 +416,11 @@ def invoke_gemini_with_fallback(
         api_key = keys[idx]
 
         try:
-            genai.configure(api_key=api_key)
-            model = genai.GenerativeModel(model_name)
-            response = model.generate_content(
-                prompt_payload,
-                generation_config={"temperature": 0.4, "max_output_tokens": 2048},
+            client = genai.Client(api_key=api_key)
+            response = client.models.generate_content(
+                model=model_name,
+                contents=prompt_payload,
+                config={"temperature": 0.4, "max_output_tokens": 2048},
             )
 
             # Persist usage stats
@@ -413,7 +431,7 @@ def invoke_gemini_with_fallback(
 
             return response.text, api_key
 
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             msg = str(exc).lower()
             if any(m.lower() in msg for m in _RATE_LIMIT_MARKERS):
                 warn(f"API key #{idx + 1} rate-limited — rotating to next key…")
@@ -447,7 +465,7 @@ def manage_cookies(cfg: Dict[str, Any]) -> None:
             warn("No cookies configured")
 
         options = [
-            ("Import cookies (JSON format)", "Import from a Netscape JSON cookie file"),
+            ("Import cookies (JSON format)", "Import and convert from a JSON cookie file"),
             ("Remove cookies", "Remove cookies for a specific domain"),
             ("Return to main menu", "Go back"),
         ]
@@ -464,18 +482,17 @@ def manage_cookies(cfg: Dict[str, Any]) -> None:
                 err(f"File not found: {cookie_path}")
                 continue
             try:
-                data = json.loads(cookie_path.read_text(encoding="utf-8"))
-                if not (isinstance(data, list) and data and "name" in data[0]):
-                    warn("Invalid cookie format. Expected a JSON array of cookie objects with a 'name' field.")
-                    continue
-                cookies[domain] = str(cookie_path)
-                cfg["cookies"] = cookies
-                save_config(cfg)
-                ok(f"Cookies imported for {domain} ({len(data)} cookies)")
-            except json.JSONDecodeError as e:
-                err(f"JSON parse error: {e}")
-            except OSError as e:
-                err(f"Could not read file: {e}")
+                from convert_cookies import convert_json_to_netscape
+                netscape_path = Path.home() / f".yt2shorts_cookies_{domain}.txt"
+                if convert_json_to_netscape(str(cookie_path), str(netscape_path)):
+                    cookies[domain] = str(netscape_path)
+                    cfg["cookies"] = cookies
+                    save_config(cfg)
+                    ok(f"Cookies imported and converted for {domain}")
+                else:
+                    err("Failed to convert JSON cookies to Netscape format.")
+            except Exception as e:
+                err(f"Error during import: {e}")
 
         elif idx == 1:
             if not cookies:
@@ -635,12 +652,50 @@ def fetch_video_info(url: str, cfg: Dict[str, Any]) -> Optional[VideoMeta]:
     section("Fetching video metadata")
     info("Querying YouTube (this may take a moment)…")
 
+    # Try advanced heatmap fetcher with cookies first
+    cookie_file = None
+    for cf in cfg.get("cookies", {}).values():
+        if Path(cf).exists():
+            cookie_file = cf
+            break
+
+    try:
+        import asyncio
+        # We need to run the async fetch in a sync way
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        info_data = loop.run_until_complete(heatmap.fetch(url, cookie_file))
+        loop.close()
+
+        if "error" not in info_data:
+            meta = VideoMeta(url=url)
+            meta.title = info_data.get("title", "Unknown Title")
+            meta.duration = float(info_data.get("duration") or 0.0)
+
+            ok(f"Title    : {c(meta.title, BOLD)}")
+            ok(f"Duration : {c(_fmt_dur(meta.duration), BOLD)}")
+
+            hm_raw = info_data.get("heatmap") or []
+            if hm_raw:
+                dur_s = int(meta.duration) + 1
+                meta.heatmap = [0.0] * dur_s
+                for seg in hm_raw:
+                    s = int(float(seg.get("start", 0.0)))
+                    e = int(float(seg.get("end", s + 1)))
+                    v = float(seg.get("intensity", 0.0))
+                    for t in range(s, min(e, dur_s)):
+                        meta.heatmap[t] = max(meta.heatmap[t], v)
+                ok(f"Heatmap  : {c(f'{len(hm_raw)} engagement windows mapped', GREEN)}")
+            return meta
+    except Exception as e:
+        warn(f"Advanced metadata fetch failed: {e}. Falling back to yt-dlp...")
+
     # Build command — note: avoid duplicating --extractor-retries from base args
     cmd = ["yt-dlp", "--dump-json"] + build_ytdlp_args(cfg) + [url]
 
     code, out = run_with_spinner(
         lambda: _run(cmd, capture=True, timeout=60),
-        label="Querying video metadata",
+        label="Querying video metadata via yt-dlp",
     )
 
     if code != 0 or not out.strip():
@@ -674,7 +729,7 @@ def fetch_video_info(url: str, cfg: Dict[str, Any]) -> Optional[VideoMeta]:
         ok(f"Duration : {c(_fmt_dur(meta.duration), BOLD)}")
 
         # Parse YouTube crowdsourced heatmap
-        hm_raw: List[Dict] = data.get("heatmap") or []
+        hm_raw = data.get("heatmap") or []
         if hm_raw:
             dur_s = int(meta.duration) + 1
             meta.heatmap = [0.0] * dur_s
@@ -835,6 +890,9 @@ def probe_video(meta: VideoMeta) -> bool:
 # ────────────────────────────────────────────────
 def extract_transcript(meta: VideoMeta, cfg: Dict[str, Any]) -> str:
     section("Extracting transcript / captions")
+
+    # 1. Try yt-dlp captions first
+    info("Trying to extract existing YouTube captions...")
     with tempfile.TemporaryDirectory() as tmp:
         cmd = [
             "yt-dlp", "--skip-download",
@@ -854,21 +912,57 @@ def extract_transcript(meta: VideoMeta, cfg: Dict[str, Any]) -> str:
                 lambda: _run(cmd, capture=True, timeout=120),
                 label="Extracting captions",
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             warn(f"Caption extraction error: {exc}")
-            return ""
 
         vtt_files = sorted(Path(tmp).glob("*.vtt"))
-        if not vtt_files:
-            warn("No captions found for this video.")
-            return ""
+        if vtt_files:
+            vtt_path = vtt_files[0]
+            raw = vtt_path.read_text(encoding="utf-8", errors="replace")
+            text = _parse_vtt(raw)
+            ok(f"Transcript: {len(text.split())} words extracted from YouTube captions")
+            return text
 
-        # Prefer manually created subtitles (shorter filename) over auto-generated
-        vtt_path = vtt_files[0]
-        raw = vtt_path.read_text(encoding="utf-8", errors="replace")
-        text = _parse_vtt(raw)
-        ok(f"Transcript: {len(text.split())} words extracted")
-        return text
+    # 2. Fallback to Whisper transcription
+    warn("No captions found. Falling back to AI transcription (Whisper)...")
+    with tempfile.TemporaryDirectory() as tmp:
+        audio_out = str(Path(tmp) / "audio.mp3")
+        dl_cmd = [
+            "yt-dlp",
+            "-x", "--audio-format", "mp3",
+            "--audio-quality", "0",
+            "--output", audio_out,
+            meta.url,
+        ]
+        dl_cmd.extend(get_cookie_args(cfg))
+
+        try:
+            run_with_spinner(
+                lambda: _run(dl_cmd, capture=True, timeout=300),
+                label="Downloading audio for transcription",
+            )
+
+            if not Path(audio_out).exists():
+                err("Failed to download audio for transcription.")
+                return ""
+
+            res = run_with_spinner(
+                lambda: transcribe(audio_out),
+                label="Transcribing audio with Whisper",
+            )
+
+            words = res.get("words", [])
+            transcript_lines = []
+            for w in words:
+                transcript_lines.append(f"[{w['start']:.1f}] {w['text']}")
+
+            text = "\n".join(transcript_lines)
+            ok(f"Transcript: {len(words)} words generated via Whisper")
+            return text
+
+        except Exception as exc:
+            err(f"Whisper transcription failed: {exc}")
+            return ""
 
 
 def _parse_vtt(raw: str) -> str:
@@ -1270,9 +1364,9 @@ def run_shorts_pipeline(args: argparse.Namespace, cfg: Dict[str, Any]) -> None:
     out_dir_str = args.output or cfg.get("output_dir") or prompt("Output directory", default_out)
     out_dir = Path(out_dir_str).expanduser()
 
-    num_clips = args.clips or int(prompt("How many Shorts to generate?", "5"))
-    max_dur   = args.max_dur or int(prompt("Max clip duration (seconds)?", "60"))
-    quality   = args.quality or prompt("Download quality (720/1080/1440/best)", "1080")
+    num_clips = args.clips or (5 if args.auto else int(prompt("How many Shorts to generate?", "5")))
+    max_dur   = args.max_dur or (60 if args.auto else int(prompt("Max clip duration (seconds)?", "60")))
+    quality   = args.quality or ("1080" if args.auto else prompt("Download quality (720/1080/1440/best)", "1080"))
 
     # ── Step 1: Fetch metadata (no download yet) ───────────────
     meta = fetch_video_info(url, cfg)
@@ -1310,11 +1404,15 @@ def run_shorts_pipeline(args: argparse.Namespace, cfg: Dict[str, Any]) -> None:
         discovered_clips = heatmap_clips[:num_clips]
 
     # Merge heatmap clips as bonus candidates if AI found fewer than requested
-    if heatmap_clips and len(discovered_clips) < num_clips:
+    if heatmap_clips:
         existing_starts = {c.start for c in discovered_clips}
         for hc in heatmap_clips:
             if hc.start not in existing_starts:
                 discovered_clips.append(hc)
+
+    if not discovered_clips:
+        # Fallback if no AI and no heatmap: just take the first N 30s segments
+        discovered_clips = _generate_fallback_clips(meta, num=num_clips, window=max_dur)
 
     if not discovered_clips:
         err("No viable clips could be identified. Try a different video or check your API key.")
@@ -1441,13 +1539,25 @@ def _write_manifest(
 # ────────────────────────────────────────────────
 #  MAIN INTERACTIVE LOOP
 # ────────────────────────────────────────────────
+def main_interactive_cli() -> None:
+    """Entry point for the console script."""
+    parser = build_parser()
+    args = parser.parse_args()
+    main_interactive(args)
+
+
 def main_interactive(args: argparse.Namespace) -> None:
     banner()
     cfg = load_config()
+    _auto_import_cookies(cfg)
 
     if not check_dependencies():
         if not confirm("Some required tools are missing. Continue anyway?", default=False):
             sys.exit(1)
+
+    if args.url and args.auto:
+        run_shorts_pipeline(args, cfg)
+        return
 
     while True:
         try:
