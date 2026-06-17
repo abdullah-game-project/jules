@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-yt2shorts — YouTube Long-Form → Shorts Converter
-Professional CLI tool for converting long YouTube videos into viral short clips.
+yt2short — YouTube Long-Form → Shorts Converter
+Free, professional CLI alternative to Opus.pro.
 Uses Gemini AI for viral moment detection + local FFmpeg processing.
 """
 
@@ -301,7 +301,7 @@ def check_dependencies() -> bool:
 # ────────────────────────────────────────────────
 #  CONFIG MANAGEMENT
 # ────────────────────────────────────────────────
-CONFIG_PATH = Path.home() / ".yt2shorts.json"
+CONFIG_PATH = Path.home() / ".yt2short.json"
 _CONFIG_LOCK = threading.Lock()
 
 _DEFAULT_CONFIG: Dict[str, Any] = {
@@ -320,7 +320,7 @@ def _auto_import_cookies(cfg: Dict[str, Any]) -> None:
         try:
             # We need to convert it to Netscape for yt-dlp
             from convert_cookies import convert_json_to_netscape
-            netscape_path = Path.home() / ".yt2shorts_cookies.txt"
+            netscape_path = Path.home() / ".yt2short_cookies.txt"
             if convert_json_to_netscape(str(local_c_json), str(netscape_path)):
                 cfg["cookies"] = {"youtube.com": str(netscape_path)}
                 save_config(cfg)
@@ -483,7 +483,7 @@ def manage_cookies(cfg: Dict[str, Any]) -> None:
                 continue
             try:
                 from convert_cookies import convert_json_to_netscape
-                netscape_path = Path.home() / f".yt2shorts_cookies_{domain}.txt"
+                netscape_path = Path.home() / f".yt2short_cookies_{domain}.txt"
                 if convert_json_to_netscape(str(cookie_path), str(netscape_path)):
                     cookies[domain] = str(netscape_path)
                     cfg["cookies"] = cookies
@@ -1360,7 +1360,7 @@ def run_shorts_pipeline(args: argparse.Namespace, cfg: Dict[str, Any]) -> None:
         vid = url.split("youtu.be/")[-1].split("?")[0]
         url = f"https://www.youtube.com/watch?v={vid}"
 
-    default_out = str(Path.home() / "yt2shorts_output")
+    default_out = str(Path.home() / "yt2short_output")
     out_dir_str = args.output or cfg.get("output_dir") or default_out
     out_dir = Path(out_dir_str).expanduser()
 
@@ -1529,7 +1529,7 @@ def _write_manifest(
         "source_duration": meta.duration,
         "clips":           records,
         "exported_at":     time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "generator":       "yt2shorts",
+        "generator":       "yt2short",
     }
     manifest_path = out_dir / "manifest.json"
     manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -1591,25 +1591,24 @@ def main_interactive(args: argparse.Namespace) -> None:
 # ────────────────────────────────────────────────
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        prog="yt2shorts",
+        prog="yt2short",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         description=textwrap.dedent("""
         ┌─────────────────────────────────────────────────────────┐
-        │  yt2shorts — YouTube Long-Form to Shorts Converter      │
+        │  yt2short — YouTube Long-Form to Shorts Converter       │
         │  Local processing + Gemini AI viral detection           │
         └─────────────────────────────────────────────────────────┘
 
         Examples:
-          python yt2shorts.py
-          python yt2shorts.py --url "https://youtu.be/dQw4w9WgXcQ"
-          python yt2shorts.py --url URL --clips 3 --max-dur 45 --auto
-          python yt2shorts.py --file /path/to/video.mp4 --clips 5
-          python yt2shorts.py --check
+          yt2short
+          yt2short --url "https://youtu.be/dQw4w9WgXcQ"
+          yt2short --url URL --clips 3 --auto
+          yt2short --check
         """),
     )
     p.add_argument("--url",          metavar="URL",  help="YouTube video URL to convert")
     p.add_argument("--file",         metavar="FILE", help="Use a local video file instead of downloading")
-    p.add_argument("--output", "-o", metavar="DIR",  help="Output directory (default: ~/yt2shorts_output)")
+    p.add_argument("--output", "-o", metavar="DIR",  help="Output directory (default: ~/yt2short_output)")
     p.add_argument("--clips",  "-n", metavar="N",    type=int, help="Number of Shorts to generate (default: 5)")
     p.add_argument("--max-dur", "-d", metavar="SECS", type=int, dest="max_dur",
                    help="Maximum clip duration in seconds (default: 60)")

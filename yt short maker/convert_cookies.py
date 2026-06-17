@@ -14,7 +14,7 @@ def convert_json_to_netscape(json_path, netscape_path):
 
         with open(netscape_path, 'w') as f:
             f.write("# Netscape HTTP Cookie File\n")
-            f.write("# This file was converted from JSON by yt2shorts\n\n")
+            f.write("# This file was converted from JSON by yt2short\n\n")
 
             for c in cookies:
                 domain = c.get('domain', '')
