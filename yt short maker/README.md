@@ -1,131 +1,77 @@
-# Shortify — AI-Powered YouTube Shorts Generator
+# yt2short — Free, AI-Powered YouTube Shorts Generator
 
-A free, self-hosted alternative to Opus.pro. Paste a YouTube URL, get viral short clips with transcripts, styled captions, and metadata — powered by Whisper + Gemini AI.
+A professional, self-hosted, and free alternative to **Opus.pro**. Effortlessly convert long-form YouTube videos into viral, high-engagement Shorts with styled captions and cinematic cropping—all from your command line.
 
-## How It Works
+## 🚀 Key Features
 
-1. **Heatmap Analysis** — Scrapes YouTube's "most replayed" segments to find naturally viral moments
-2. **Whisper Transcription** — Transcribes the full video with word-level timestamps using Faster-Whisper
-3. **Gemini AI Analysis** — Sends transcript + heatmap to Gemini to pick the best viral clips
-4. **Styled Captions** — Generates Opus-style ASS karaoke subtitles with word-by-word highlighting
-5. **Export** — Returns clip timestamps, clickbait titles, descriptions, tags, and keywords
+- **Free & Open Source**: No subscriptions or hidden fees. Self-hosted on your own machine.
+- **AI-Driven Virality**: Uses **Google Gemini AI** to analyze transcripts and identify the most viral-worthy moments.
+- **Smart Heatmap Analysis**: Scrapes YouTube's "most replayed" data to find segments viewers naturally love.
+- **Local AI Transcription**: Powered by **Faster-Whisper** for fast, local audio-to-text conversion (no API cost).
+- **Cinematic 9:16 Cropping**: Automatically crops horizontal videos to vertical 9:16 format with blurred background overlays.
+- **Styled Captions**: Generates Opus-style animated ASS captions with word-level highlighting (available via worker/API).
+- **Antibot Detection**: Robust support for YouTube cookies (`c.json`) to bypass bot detection and rate limits.
 
-## Quick Start
+## 🛠️ Prerequisites
 
-### Prerequisites
+- **Python 3.10+**
+- **FFmpeg & FFprobe**: Installed and in your system PATH.
+- **Node.js**: Recommended for `yt-dlp` signature solving.
+- **Google Gemini API Key**: [Get a free key here](https://aistudio.google.com/apikey).
 
-- Python 3.10+
-- [ffmpeg](https://ffmpeg.org/) installed and in your PATH
-- A [Google Gemini API key](https://aistudio.google.com/apikey) (free tier works)
+## 📥 Installation
 
-### Installation
+1. **Clone the repository**:
+   ```bash
+   git clone https://github.com/YOUR_USERNAME/yt2short.git
+   cd yt2short
+   ```
 
+2. **Install dependencies**:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+3. **Install the CLI tool**:
+   ```bash
+   pip install -e .
+   ```
+   Now you can use the `yt2short` command anywhere!
+
+## 🎬 Quick Start
+
+### 1. Launch the Tool
+Simply type:
 ```bash
-git clone https://github.com/YOUR_USERNAME/shortify.git
-cd shortify
-pip install -r requirements.txt
-cp .env.example .env
+yt2short
 ```
+This opens the interactive menu where you can configure your API keys and cookies.
 
-Edit `.env` and add your Gemini API key:
-
-```
-GEMINI_API_KEY=your-key-here
-```
-
-### Run the API Server
-
+### 2. Create Shorts (Express Mode)
+Generate viral clips in one command:
 ```bash
-uvicorn main:app --host 0.0.0.0 --port 8000
+yt2short --url "https://www.youtube.com/watch?v=dQw4w9WgXcQ" --auto --clips 3
 ```
 
-### Analyze a Video
+### 3. Handle Antibot Detection
+Drop your exported YouTube cookies into a file named `c.json` in the working directory. `yt2short` will automatically detect and import them to ensure smooth downloads.
 
-```bash
-curl -X POST http://localhost:8000/analyze \
-  -H "Content-Type: application/json" \
-  -d '{"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"}'
-```
+## 📖 Command Line Options
 
-Response:
+| Flag | Description |
+|------|-------------|
+| `--url URL` | The YouTube video URL to convert. |
+| `--clips N` | Number of Shorts to generate (default: 5). |
+| `--auto` | Non-interactive mode; uses defaults for all prompts. |
+| `--output DIR`| Custom output directory. |
+| `--check` | Verify your system dependencies. |
 
-```json
-{
-  "job_id": "a1b2c3d4e5f6",
-  "video_id": "dQw4w9WgXcQ",
-  "title": "Rick Astley - Never Gonna Give You Up",
-  "duration": 212.0,
-  "clips": [
-    {
-      "clip": {"start_time": 45.0, "end_time": 75.0},
-      "title": "Rick Astley's most iconic moment #shorts",
-      "description": "This part hits different every time...\n\n#shorts #viral",
-      "tags": ["shorts", "viral", "music", "rickroll"],
-      "keywords": ["rick astley", "never gonna give you up"],
-      "reasoning": "High heatmap intensity, recognizable hook"
-    }
-  ]
-}
-```
+## 🌟 How It Works
 
-### Worker (Local PC)
+1. **Extraction**: `yt2short` fetches video metadata and engagement heatmaps using `yt-dlp` and `httpx`.
+2. **Transcription**: If no captions exist, it downloads the audio and uses `faster-whisper` for local transcription.
+3. **Analysis**: The transcript and heatmap are sent to Gemini AI to pick the top moments.
+4. **Processing**: `FFmpeg` crops the video, applies blurring, and renders the final 9:16 Shorts.
 
-The worker downloads, crops to 9:16, and generates styled captions:
-
-```bash
-python worker.py <youtube-url> [clip-index]
-```
-
-## API Endpoints
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/` | Health check |
-| `POST` | `/analyze` | Analyze a YouTube URL, returns viral clip candidates |
-| `GET` | `/jobs` | List all analyzed jobs |
-| `GET` | `/jobs/{job_id}` | Get job details |
-
-## Configuration
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `GEMINI_API_KEY` | — | **Required.** Your Google Gemini API key |
-| `WHISPER_MODEL` | `base` | Whisper model size: `tiny`, `base`, `small`, `medium`, `large-v3` |
-| `WHISPER_DEVICE` | `cpu` | `cpu` or `cuda` (GPU) |
-| `CLIP_DURATION` | `30` | Target clip length in seconds |
-| `MAX_CLIPS` | `5` | Max clips to return per analysis |
-| `HOST` | `0.0.0.0` | Server host |
-| `PORT` | `8000` | Server port |
-
-## Project Structure
-
-```
-shortify/
-├── main.py           # FastAPI server
-├── config.py         # Settings from .env
-├── heatmap.py        # YouTube heatmap scraper
-├── transcriber.py    # Faster-Whisper transcription
-├── analyzer.py       # Gemini AI clip selection + metadata
-├── captions.py       # SRT & ASS subtitle generation
-├── downloader.py     # yt-dlp audio download
-├── worker.py         # Local PC: download + crop + captions
-├── requirements.txt
-└── .env.example
-```
-
-## Features vs Opus.pro
-
-| Feature | Shortify | Opus.pro |
-|---------|----------|----------|
-| Price | Free (self-hosted) | $19+/mo |
-| Transcript source | Whisper (local) | Their servers |
-| AI analysis | Gemini (free tier) | Proprietary |
-| YouTube heatmap | Yes | No |
-| Styled captions | Yes (ASS karaoke) | Yes |
-| Multiple clips per video | Yes | Yes |
-| Customizable | 100% | No |
-| Privacy | Fully local option | Cloud |
-
-## License
-
-MIT
+---
+*Created as a free alternative for creators to regain control over their short-form content workflow.*

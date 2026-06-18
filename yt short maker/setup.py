@@ -1,10 +1,10 @@
 from setuptools import setup, find_packages
 
 setup(
-    name="yt2shorts",
+    name="yt2short",
     version="1.0.0",
     packages=find_packages(),
-    py_modules=["yt2shorts", "convert_cookies", "heatmap", "transcriber", "config", "downloader", "analyzer", "captions", "worker"],
+    py_modules=["yt2short", "convert_cookies", "heatmap", "transcriber", "config", "downloader", "analyzer", "captions", "worker"],
     install_requires=[
         "yt-dlp>=2024.12.0",
         "google-genai>=1.14.0",
@@ -16,7 +16,7 @@ setup(
     ],
     entry_points={
         "console_scripts": [
-            "yt2shorts=yt2shorts:main_interactive_cli",
+            "yt2short=yt2short:main_interactive_cli",
         ],
     },
 )
